@@ -74,6 +74,22 @@ public:
             Baton(db_, cb_), sql(sql_) {}
     };
 
+    struct DumpBaton : Baton {
+        std::string schema;
+        unsigned char* data = nullptr;
+        sqlite3_int64 size = 0;
+        DumpBaton(Database* db_, Napi::Function cb_, std::string schema_) :
+            Baton(db_, cb_), schema(std::move(schema_)) {}
+    };
+
+    struct LoadBaton : Baton {
+        std::string schema;
+        unsigned char* data;
+        sqlite3_int64 size;
+        LoadBaton(Database* db_, Napi::Function cb_, std::string schema_, unsigned char* data_, sqlite3_int64 size_) :
+            Baton(db_, cb_), schema(std::move(schema_)), data(data_), size(size_) {}
+    };
+
     struct LoadExtensionBaton : Baton {
         std::string filename;
         LoadExtensionBaton(Database* db_, Napi::Function cb_, const char* filename_) :
@@ -154,6 +170,16 @@ protected:
     static void Work_BeginExec(Baton* baton);
     static void Work_Exec(napi_env env, void* data);
     static void Work_AfterExec(napi_env env, napi_status status, void* data);
+
+    Napi::Value Dump(const Napi::CallbackInfo& info);
+    static void Work_BeginDump(Baton* baton);
+    static void Work_Dump(napi_env env, void* data);
+    static void Work_AfterDump(napi_env env, napi_status status, void* data);
+
+    Napi::Value Load(const Napi::CallbackInfo& info);
+    static void Work_BeginLoad(Baton* baton);
+    static void Work_Load(napi_env env, void* data);
+    static void Work_AfterLoad(napi_env env, napi_status status, void* data);
 
     Napi::Value Wait(const Napi::CallbackInfo& info);
     static void Work_Wait(Baton* baton);

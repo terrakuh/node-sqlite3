@@ -56,6 +56,13 @@ inline bool OtherIsInt(Napi::Number source) {
     }                                                                          \
     std::string var = info[i].As<Napi::String>();
 
+#define REQUIRE_ARGUMENT_BUFFER(i, var)                                        \
+    if (info.Length() <= (i) || !info[i].IsBuffer()) {                        \
+        Napi::TypeError::New(env, "Argument " #i " must be a buffer").ThrowAsJavaScriptException(); \
+        return env.Null();        \
+    }                                                                          \
+    auto var = info[i].As<Napi::Buffer<char>>();
+
 #define REQUIRE_ARGUMENT_INTEGER(i, var)                                        \
     if (info.Length() <= (i) || !info[i].IsNumber()) {                        \
         Napi::TypeError::New(env, "Argument " #i " must be an integer").ThrowAsJavaScriptException(); \
