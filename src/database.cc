@@ -712,32 +712,6 @@ void Database::Work_AfterDump(napi_env e, napi_status status, void* data) {
         TRY_CATCH_CALL(db->Value(), cb, 2, argv);
     }
 
-
-    // Database* db = baton->db;
-    // db->pending--;
-
-    // Napi::Env env = db->Env();
-    // Napi::HandleScope scope(env);
-
-    // Napi::Function cb = baton->callback.Value();
-
-    // if (baton->status != SQLITE_OK) {
-    //     EXCEPTION(Napi::String::New(env, baton->message.c_str()), baton->status, exception);
-
-    //     if (IS_FUNCTION(cb)) {
-    //         Napi::Value argv[] = { exception };
-    //         TRY_CATCH_CALL(db->Value(), cb, 1, argv);
-    //     }
-    //     else {
-    //         Napi::Value info[] = { Napi::String::New(env, "error"), exception };
-    //         EMIT_EVENT(db->Value(), 2, info);
-    //     }
-    // }
-    // else if (IS_FUNCTION(cb)) {
-    //     Napi::Value argv[] = { env.Null() };
-    //     TRY_CATCH_CALL(db->Value(), cb, 1, argv);
-    // }
-
     db->Process();
 }
 
@@ -750,6 +724,7 @@ Napi::Value Database::Load(const Napi::CallbackInfo& info) {
     REQUIRE_ARGUMENT_FUNCTION(2, callback);
 
     unsigned char* data_ptr = static_cast<unsigned char*>(sqlite3_malloc64(data.Length()));
+    memcpy(data_ptr, data.Data(), data.Length());
     Baton* baton = new LoadBaton(db, callback, std::move(schema), data_ptr, data.Length());
     db->Schedule(Work_BeginLoad, baton, true);
 
