@@ -117,8 +117,8 @@ export class Database extends events.EventEmitter {
 
     exec(sql: string, callback?: (this: Statement, err: Error | null) => void): this;
 
-    dump(schema: string, callback?: (err: Error | null, data: Buffer) => void): this;
-    load(schema: string, data: Buffer, callback?: (err: Error | null) => void): this;
+    dump(schema: "main" | "temp" | string, callback: (err: Error | null, data: Buffer) => void): this;
+    load(schema: "main" | "temp" | string, data: Buffer, callback?: (err: Error | null) => void): this;
 
     prepare(sql: string, callback?: (this: Statement, err: Error | null) => void): Statement;
     prepare(sql: string, params: any, callback?: (this: Statement, err: Error | null) => void): Statement;

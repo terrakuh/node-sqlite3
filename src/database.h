@@ -76,8 +76,6 @@ public:
 
     struct DumpBaton : Baton {
         std::string schema;
-        unsigned char* data = nullptr;
-        sqlite3_int64 size = 0;
         DumpBaton(Database* db_, Napi::Function cb_, std::string schema_) :
             Baton(db_, cb_), schema(std::move(schema_)) {}
     };
@@ -172,14 +170,10 @@ protected:
     static void Work_AfterExec(napi_env env, napi_status status, void* data);
 
     Napi::Value Dump(const Napi::CallbackInfo& info);
-    static void Work_BeginDump(Baton* baton);
-    static void Work_Dump(napi_env env, void* data);
-    static void Work_AfterDump(napi_env env, napi_status status, void* data);
+    static void Work_Dump(Baton* b);
 
     Napi::Value Load(const Napi::CallbackInfo& info);
-    static void Work_BeginLoad(Baton* baton);
-    static void Work_Load(napi_env env, void* data);
-    static void Work_AfterLoad(napi_env env, napi_status status, void* data);
+    static void Work_Load(Baton* b);
 
     Napi::Value Wait(const Napi::CallbackInfo& info);
     static void Work_Wait(Baton* baton);

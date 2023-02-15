@@ -657,62 +657,55 @@ Napi::Value Database::Dump(const Napi::CallbackInfo& info) {
     REQUIRE_ARGUMENT_FUNCTION(1, callback);
 
     Baton* baton = new DumpBaton(db, callback, std::move(schema));
-    db->Schedule(Work_BeginDump, baton, true);
+    db->Schedule(Work_Dump, baton, true);
 
     return info.This();
 }
 
-void Database::Work_BeginDump(Baton* baton) {
+void Database::Work_Dump(Baton* b) {
+    std::unique_ptr<DumpBaton> baton(static_cast<DumpBaton*>(b));
+
+    Napi::Env env = baton->db->Env();
+    Napi::HandleScope scope(env);
+
     assert(baton->db->locked);
     assert(baton->db->open);
     assert(baton->db->_handle);
     assert(baton->db->pending == 0);
-    baton->db->pending++;
-    Napi::Env env = baton->db->Env();
-    int status = napi_create_async_work(
-        env, NULL, Napi::String::New(env, "sqlite3.Database.Dump"),
-        Work_Dump, Work_AfterDump, baton, &baton->request
-    );
-    assert(status == 0);
-    napi_queue_async_work(env, baton->request);
-}
 
-void Database::Work_Dump(napi_env e, void* data) {
-    DumpBaton* baton = static_cast<DumpBaton*>(data);
-
-    baton->data = sqlite3_serialize(
+    // Try without copying first.
+    sqlite3_int64 size = 0;
+    unsigned char* data_ptr = sqlite3_serialize(
         baton->db->_handle,
         baton->schema.c_str(),
-        &baton->size,
-        0
+        &size,
+        SQLITE_SERIALIZE_NOCOPY
     );
 
-    if (baton->data == nullptr) {
-        baton->message = std::string(sqlite3_errmsg(baton->db->_handle));
-    }
-}
-
-void Database::Work_AfterDump(napi_env e, napi_status status, void* data) {
-    std::unique_ptr<DumpBaton> baton(static_cast<DumpBaton*>(data));
-    std::unique_ptr<unsigned char, decltype(&sqlite3_free)> data_blob(baton->data, &sqlite3_free);
-
-    Database* db = baton->db;
-    db->pending--;
-
-    Napi::Env env = db->Env();
-    Napi::HandleScope scope(env);
-
-    /* if (stmt->status != SQLITE_ROW && stmt->status != SQLITE_DONE) {
-        Error(baton.get());
-    }
-    else  */{
-        // Fire callbacks.
-        Napi::Function cb = baton->callback.Value();
-        Napi::Value argv[] = { env.Null(), Napi::Buffer<char>::Copy(env, reinterpret_cast<const char*>(data_blob.get()), baton->size) };
-        TRY_CATCH_CALL(db->Value(), cb, 2, argv);
+    // Failed to get continuos memory. Try to copy.
+    std::unique_ptr<unsigned char, decltype(&sqlite3_free)> data_freer(nullptr, &sqlite3_free);
+    if (data_ptr == nullptr) {
+        data_ptr = sqlite3_serialize(
+            baton->db->_handle,
+            baton->schema.c_str(),
+            &size,
+            0
+        );
+        data_freer.reset(data_ptr);
     }
 
-    db->Process();
+    Napi::Value argv[] = { env.Null(), env.Null() };
+    if (data_ptr == nullptr) {
+        argv[0] = Napi::Error::New(env, std::string(sqlite3_errmsg(baton->db->_handle))).Value();
+    } else {
+        argv[1] = Napi::Buffer<char>::Copy(env, reinterpret_cast<const char*>(data_ptr), size);
+        data_freer.reset();
+    }
+
+    Napi::Function cb = baton->callback.Value();
+    TRY_CATCH_CALL(baton->db->Value(), cb, 2, argv);
+
+    baton->db->Process();
 }
 
 Napi::Value Database::Load(const Napi::CallbackInfo& info) {
@@ -721,33 +714,26 @@ Napi::Value Database::Load(const Napi::CallbackInfo& info) {
 
     REQUIRE_ARGUMENT_STRING(0, schema);
     REQUIRE_ARGUMENT_BUFFER(1, data);
-    REQUIRE_ARGUMENT_FUNCTION(2, callback);
+    OPTIONAL_ARGUMENT_FUNCTION(2, callback);
 
     unsigned char* data_ptr = static_cast<unsigned char*>(sqlite3_malloc64(data.Length()));
     memcpy(data_ptr, data.Data(), data.Length());
     Baton* baton = new LoadBaton(db, callback, std::move(schema), data_ptr, data.Length());
-    db->Schedule(Work_BeginLoad, baton, true);
+    db->Schedule(Work_Load, baton, true);
 
     return info.This();
 }
 
-void Database::Work_BeginLoad(Baton* baton) {
+void Database::Work_Load(Baton* b) {
+    std::unique_ptr<LoadBaton> baton(static_cast<LoadBaton*>(b));
+
+    Napi::Env env = baton->db->Env();
+    Napi::HandleScope scope(env);
+
     assert(baton->db->locked);
     assert(baton->db->open);
     assert(baton->db->_handle);
     assert(baton->db->pending == 0);
-    baton->db->pending++;
-    Napi::Env env = baton->db->Env();
-    int status = napi_create_async_work(
-        env, NULL, Napi::String::New(env, "sqlite3.Database.Load"),
-        Work_Load, Work_AfterLoad, baton, &baton->request
-    );
-    assert(status == 0);
-    napi_queue_async_work(env, baton->request);
-}
-
-void Database::Work_Load(napi_env e, void* data) {
-    LoadBaton* baton = static_cast<LoadBaton*>(data);
 
     // Ownership of the buffer is transferred to SQLite.
     baton->status = sqlite3_deserialize(
@@ -759,31 +745,23 @@ void Database::Work_Load(napi_env e, void* data) {
         SQLITE_DESERIALIZE_FREEONCLOSE | SQLITE_DESERIALIZE_RESIZEABLE
     );
 
-    if (baton->status != SQLITE_OK) {
-        baton->message = std::string(sqlite3_errmsg(baton->db->_handle));
-    }
-}
-
-void Database::Work_AfterLoad(napi_env e, napi_status status, void* data) {
-    std::unique_ptr<LoadBaton> baton(static_cast<LoadBaton*>(data));
-
-    Database* db = baton->db;
-    db->pending--;
-
-    Napi::Env env = db->Env();
-    Napi::HandleScope scope(env);
-
-    Napi::Value argv[] = { env.Null() };
-    if (baton->status != SQLITE_OK) {
-        EXCEPTION(Napi::String::New(env, baton->message.c_str()), baton->status, exception);
-        argv[0] = exception;
-    }
-
-    // Fire callbacks.
     Napi::Function cb = baton->callback.Value();
-    TRY_CATCH_CALL(db->Value(), cb, 1, argv);
+    if (baton->status != SQLITE_OK) {
+        EXCEPTION(Napi::String::New(env, sqlite3_errmsg(baton->db->_handle)), baton->status, exception);
 
-    db->Process();
+        if (IS_FUNCTION(cb)) {
+            Napi::Value argv[] = { exception };
+            TRY_CATCH_CALL(baton->db->Value(), cb, 1, argv);
+        } else {
+            Napi::Value info[] = { Napi::String::New(env, "error"), exception };
+            EMIT_EVENT(baton->db->Value(), 2, info);
+        }
+    } else if (IS_FUNCTION(cb)) {
+        Napi::Value argv[] = { env.Null() };
+        TRY_CATCH_CALL(baton->db->Value(), cb, 1, argv);
+    }
+
+    baton->db->Process();
 }
 
 Napi::Value Database::Wait(const Napi::CallbackInfo& info) {
